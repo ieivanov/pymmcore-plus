@@ -24,6 +24,7 @@ from typing_extensions import deprecated
 from useq import MDASequence
 
 from pymmcore_plus._logger import exceptions_logged, logger
+from pymmcore_plus.metadata.serialize import to_builtins
 
 from ._protocol import PMDAEngine
 from ._thread_relay import mda_listeners_connected
@@ -812,6 +813,8 @@ def _frame_meta_to_ome(meta: FrameMetaV1) -> dict:
     }
     if pos := meta.get("position"):
         d.update({f"position_{k}": v for k, v in pos.items() if k in "xyz"})
+    if event := meta.get("mda_event"):
+        d["mda_event"] = to_builtins(event)
     return d
 
 
@@ -895,6 +898,11 @@ class _OmeWritersSink(SinkProtocol):
         }
         self._settings = AcquisitionSettings.model_validate(new_settings)
         self._stream = create_stream(self._settings)
+
+        # Write summary metadata to the root zarr.json attributes
+        root_attrs = self._stream.get_root_metadata() or {}
+        root_attrs["summary_metadata"] = to_builtins(meta)
+        self._stream.update_root_metadata(root_attrs)
 
     def append(self, img: np.ndarray, event: MDAEvent, meta: FrameMetaV1) -> None:
         self._stream.append(img, frame_metadata=_frame_meta_to_ome(meta))  # type: ignore[union-attr]

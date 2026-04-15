@@ -17,7 +17,7 @@ __all__ = ["logger"]
 logger = logging.getLogger("pymmcore-plus")
 
 PYMM_LOG_FILE = os.getenv("PYMM_LOG_FILE", "")
-DEFAULT_LOG_LEVEL: str = os.getenv("PYMM_LOG_LEVEL", "WARNING").upper()
+DEFAULT_LOG_LEVEL: str = os.getenv("PYMM_LOG_LEVEL", "INFO").upper()
 
 if "PYTEST_RUNNING" in os.environ:
     LOG_FILE = None
@@ -113,13 +113,22 @@ def configure_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
 
-    for handler in logger.handlers:
+    for handler in logger.handlers[:]:  # copy to avoid mutation-during-iteration
         logger.removeHandler(handler)
+        handler.close()  # release file handle on Windows
 
     # automatically log to stderr
     if log_to_stderr and sys.stderr:
-        stderr_handler = logging.StreamHandler(sys.stderr)
-        stderr_handler.setFormatter(CustomFormatter())
+        # try to use rich for stderr logging
+        # fallback to plain text if rich is not installed
+        try:
+            from rich.logging import RichHandler
+
+            stderr_handler: logging.Handler = RichHandler()
+        except ImportError:
+            stderr_handler = logging.StreamHandler(sys.stderr)
+            stderr_handler.setFormatter(CustomFormatter())
+
         stderr_handler.setLevel(stderr_level)
         logger.addHandler(stderr_handler)
 

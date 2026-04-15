@@ -1,4 +1,3 @@
-import itertools
 import sys
 
 import numpy as np
@@ -16,13 +15,12 @@ sequence = MDASequence(
 
 mmc = CMMCorePlus.instance()  # (2)!
 mmc.loadSystemConfiguration()  #  load demo configuration (3)
-counter = itertools.count(1)
 
 
 # connect callback using a decorator (4)
 @mmc.mda.events.frameReady.connect
 def new_frame(img: np.ndarray, event: MDAEvent):
-    print(f"Frame {next(counter):>3}, shape", img.shape, event.index)
+    print(img.shape)
 
 
 # or connect callback using a function

@@ -141,7 +141,7 @@ class OmeWritersSink(SinkProtocol):
         self._settings = AcquisitionSettings.model_validate(new_settings)
         self._stream = create_stream(self._settings)
         self._summary_meta = meta
-        self._write_summary_metadata()
+        # self._write_summary_metadata()
 
     def append(self, img: np.ndarray, event: MDAEvent, meta: FrameMetaV1) -> None:
         self._stream.append(img, frame_metadata=_frame_meta_to_ome(meta))  # type: ignore[union-attr]

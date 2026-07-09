@@ -72,6 +72,12 @@ class SequencedEvent(MDAEvent):
     property_sequences: dict[tuple[str, str], list[str]] = Field(default_factory=dict)
     # static properties should be added to MDAEvent.properties as usual
 
+    # Plate well indices of the originating stage position. Derived in
+    # EventCombiner._create_sequenced_event because SequencedEvent.index is not
+    # populated, so consumers cannot recover the well from index["p"] alone.
+    plate_row: Optional[int] = None  # noqa: UP045
+    plate_col: Optional[int] = None  # noqa: UP045
+
     @model_validator(mode="after")
     def _check_lengths(self) -> Self:
         if len(self.x_sequence) != len(self.y_sequence):
@@ -138,6 +144,29 @@ def get_all_sequenceable(
 
 
 # ==============================================
+
+
+def _plate_indices_for_event(event: MDAEvent) -> tuple[int | None, int | None]:
+    """Return the ``(plate_row, plate_col)`` of the event's stage position.
+
+    The values are looked up from the originating
+    [`useq.MDASequence.stage_positions`][] via the event's position index
+    (``index["p"]``). Using the index rather than ``pos_name`` keeps the lookup
+    unambiguous even when position names are repeated across wells.
+
+    Returns ``(None, None)`` when the information is unavailable, e.g. the event
+    has no parent sequence, no position index, or the position does not define
+    plate coordinates.
+    """
+    seq = event.sequence
+    p_idx = event.index.get("p")
+    if seq is None or p_idx is None:
+        return None, None
+    try:
+        position = seq.stage_positions[p_idx]
+    except (IndexError, TypeError):
+        return None, None
+    return getattr(position, "plate_row", None), getattr(position, "plate_col", None)
 
 
 class EventCombiner:
@@ -348,6 +377,8 @@ class EventCombiner:
         z_seq = tuple(z_positions) if z_changed else ()
         slm_seq = tuple(slm_images) if slm_changed else ()
 
+        plate_row, plate_col = _plate_indices_for_event(first_event)
+
         return SequencedEvent(
             events=tuple(self.event_batch),
             exposure_sequence=exp_seq,
@@ -357,6 +388,8 @@ class EventCombiner:
             slm_sequence=slm_seq,
             property_sequences=property_sequences,
             properties=static_props,
+            plate_row=plate_row,
+            plate_col=plate_col,
             # all other "standard" MDAEvent fields are derived from the first event
             # the engine will use these values if the corresponding sequence is empty
             pos_name=first_event.pos_name,

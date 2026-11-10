@@ -122,7 +122,10 @@ class OmeWritersSink(SinkProtocol):
         self._reorder = None
         n_cameras = info.get("num_camera_adapter_channels", 1)
         if n_cameras > 1:
-            cameras = _physical_camera_names(meta, info["camera_label"], n_cameras)
+            cameras = list(
+                info.get("camera_channel_names")
+                or [f"cam{i}" for i in range(n_cameras)]
+            )
             dims, self._reorder = _fold_cameras_into_channels(
                 list(useq_settings["dimensions"]), cameras
             )
@@ -210,29 +213,22 @@ def _unbounded_3d_settings(
     }
 
 
-def _physical_camera_names(
-    meta: SummaryMetaV1, camera_label: str, n_cameras: int
-) -> list[str]:
-    """Return the physical camera labels behind the `camera_label` Multi Camera.
-
-    Read from the Multi Camera's "Physical Camera N" properties in the summary
-    metadata; falls back to `cam0`, `cam1`, ... when they can't be found.
-    """
-    for dev in meta.get("devices", ()):
-        if dev.get("label") != camera_label:
-            continue
-        props = {p["name"]: p.get("value") for p in dev.get("properties", ())}
-        names = [props.get(f"Physical Camera {i + 1}") for i in range(n_cameras)]
-        if all(n and n != "Undefined" for n in names):
-            return [str(n) for n in names]
-        break
-    return [f"cam{i}" for i in range(n_cameras)]
-
-
-def _channel_name(coord: Any, idx: int) -> str:
+def _channel_name(coord: Any) -> str:
     if isinstance(coord, Channel):
         return coord.name
-    return str(coord) if coord is not None else f"c{idx}"
+    return "" if coord is None else str(coord)
+
+
+def _camera_channel_name(channel: str, camera: str) -> str:
+    """Name of `channel` as acquired by `camera`, following Micro-Manager.
+
+    `{channel}-{camera}`, or just the camera for an unnamed or "Default" channel --
+    as in MMStudio's acquisition engines (`super-channel-name` in acq_engine.clj,
+    AcqEngJAdapter) and Snap/Live (`SnapLiveManager.makeChannelName`).
+    """
+    if not channel or channel == "Default":
+        return camera
+    return f"{channel}-{camera}"
 
 
 def _fold_cameras_into_channels(
@@ -242,7 +238,7 @@ def _fold_cameras_into_channels(
 
     Frames arrive in the order of `dims` with the camera innermost (each event
     yields one frame per camera). They are stored with a single channel axis of
-    `n_channels * n_cameras` entries named `<channel>/<camera>`, in place of the
+    `n_channels * n_cameras` entries named `<channel>-<camera>`, in place of the
     original channel axis -- or, without channels, a new one placed before the
     first spatial index axis (z), as OME requires. Returns the storage dimensions
     and the reorderer that maps arrival order to storage order.
@@ -262,12 +258,14 @@ def _fold_cameras_into_channels(
         c_dim = index_dims[c_idx]
         n_ch = c_dim.count or 1
         coords = c_dim.coords or [None] * n_ch
-        names = [_channel_name(c, i) for i, c in enumerate(coords)]
+        names = [_channel_name(c) for c in coords]
         folded = c_dim.model_copy(
             update={
                 "count": n_ch * n_cam,
                 "coords": [
-                    Channel(name=f"{ch}/{cam}") for ch in names for cam in cameras
+                    Channel(name=_camera_channel_name(ch, cam))
+                    for ch in names
+                    for cam in cameras
                 ],
             }
         )
